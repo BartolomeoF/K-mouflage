@@ -66,7 +66,7 @@ class KmouExpansionJordan:
         self.dphia_o_da_sym_eq = self.dphia_o_da_sym_eq.subs(self.E, self.E_kmou).subs(self.phi.diff(self.a), self.phi_a)
 
     def _enrich_sol(self):
-        self.A_fun(lambdify(self.phi, self.A))
+        self.A_fun = lambdify(self.phi, self.A)
         self.E_kmou_fun = lambdify((self.a, self.phi, self.phi_a), self.E_kmou.subs(self.phi.diff(self.a), self.phi_a)
         .subs(self.lamb, self.lamb_val))
         self.E_kmou_a_fun = lambdify((self.a, self.phi, self.phi_a), 
@@ -85,35 +85,43 @@ class KmouExpansionJordan:
         phi_val = self.sol.sol(a)[0]
         return self.A_fun(phi_val)
         
-    def get_a_Ein(self, a_Jor):
-        a_Ein = a_Jor/self.get_conf_fact(a_Jor)
-        return a_Ein
+    def get_a_Jor(self, a_Ein, maxiter=1000):
+        a_Jor = a_Ein
+        n_iter=0
+        while (abs(a_Jor-a_Ein)>1e-7) or (n_iter==maxiter):
+            a_Jor = a_Ein*self.get_conf_fact(a_Jor)
+            n_iter+=1
+        if n_iter==maxiter:
+            print ('Could not calculate a_jordan iteratively')
+        else:
+            return a_Jor
     
-    def get_H_Ein(self, a_Jor):
-        phi_val, phi_a_val = self.sol.sol(self.a_target)
-        a_Ein = self.get_a_Ein(a_Jor)
+    def get_E_Ein(self, a_Ein):
+        a_Jor = self.get_a_Jor(a_Ein)
+        phi_val, phi_a_val_Jor = self.sol.sol(a_Jor)
         A = self.get_conf_fact(a_Jor)
-        E_Jor = self.E_kmou_fun(a_Jor, phi_val, phi_a_val)
-        E_Ein = E_Jor * A / (1 + a_Ein*self.beta*phi_a_val) # Fix here
+        phi_a_val_Ein = A*phi_a_val_Jor/(1-self.beta*a_Jor*phi_a_val_Jor)
+        E_Jor = self.E_kmou_fun(a_Jor, phi_val, phi_a_val_Jor)
+        E_Ein = E_Jor * A / (1 + a_Ein*self.beta*phi_a_val_Ein)
         return E_Ein
-        
-    def tune_lambda(self, E_target=1, a_target=1, frame='Jordan', maxiter=5):
-        if frame=='Jordan':
-            self.a_target = a_target
-            self.E_target = E_target
-        elif frame=='Einstein':
-            self.a_target = a_target
-            self.E_target = E_target
-        self.lamb_val = newton(lambda l: self.get_Delta_E(l), self.lamb_val, maxiter=maxiter)
-        return None
     
-    def get_Delta_E(self, lamb_val):
+    def get_Delta_E(self, lamb_val, frame):
         self.lamb_val = lamb_val
         self.solve()
-        phi_val, phi_a_val = self.sol.sol(self.a_target)
-        self.Delta_E = np.array(self.E_kmou_fun(self.a_target, phi_val, phi_a_val) - self.E_target) / self.E_target
+        if frame=='Jordan':
+            phi_val, phi_a_val = self.sol.sol(self.a_target)
+            E_val = self.E_kmou_fun(self.a_target, phi_val, phi_a_val)
+        elif frame=='Einstein':
+            E_val = self.get_E_Ein(self.a_target)
+            
+        self.Delta_E = np.array(E_val - self.E_target) / self.E_target
         return self.Delta_E
-
+        
+    def tune_lambda(self, E_target=1, a_target=1, frame='Jordan', maxiter=5):
+        self.a_target = a_target
+        self.E_target = E_target
+        self.lamb_val = newton(self.get_Delta_E, self.lamb_val, maxiter=maxiter, args=[frame])
+        return None
         
     def eval(self, a_vals=None):
         self.a_vals = np.logspace(-3, 0, 1000) if a_vals is None else a_vals
