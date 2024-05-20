@@ -36,6 +36,7 @@ class KmouExpansionJordan:
         # phi_pp = self.a*self.H_conf*(phi_p).diff(a)        
         
         A = exp(self.beta * self.phi)
+        self.A = A
         rho_m0 = self.Om0_val * self.H0_hinvMpc**2 / (8 * pi * self.G / 3)
         
         K = (-1 + self.X + self.K0 * self.X**self.n)
@@ -65,6 +66,7 @@ class KmouExpansionJordan:
         self.dphia_o_da_sym_eq = self.dphia_o_da_sym_eq.subs(self.E, self.E_kmou).subs(self.phi.diff(self.a), self.phi_a)
 
     def _enrich_sol(self):
+        self.A_fun(lambdify(self.phi, self.A))
         self.E_kmou_fun = lambdify((self.a, self.phi, self.phi_a), self.E_kmou.subs(self.phi.diff(self.a), self.phi_a)
         .subs(self.lamb, self.lamb_val))
         self.E_kmou_a_fun = lambdify((self.a, self.phi, self.phi_a), 
@@ -78,10 +80,30 @@ class KmouExpansionJordan:
         '''Convenience function for solve_ivp'''
         return (self.dphi_o_da_eq(t, vec[0], vec[1]),
                 self.dphia_o_da_eq(t, vec[0], vec[1]))
+        
+    def get_conf_fact(self, a):
+        phi_val = self.sol.sol(a)[0]
+        return self.A_fun(phi_val)
+        
+    def get_a_Ein(self, a_Jor):
+        a_Ein = a_Jor/self.get_conf_fact(a_Jor)
+        return a_Ein
     
-    def tune_lambda(self, H0_target=1, a_target=1, frame='Jordan', maxiter=5):
-        self.a_target = a_target
-        self.H0_target = H0_target
+    def get_H_Ein(self, a_Jor):
+        phi_val, phi_a_val = self.sol.sol(self.a_target)
+        a_Ein = self.get_a_Ein(a_Jor)
+        A = self.get_conf_fact(a_Jor)
+        E_Jor = self.E_kmou_fun(a_Jor, phi_val, phi_a_val)
+        E_Ein = E_Jor * A / (1 + a_Ein*self.beta*phi_a_val) # Fix here
+        return E_Ein
+        
+    def tune_lambda(self, E_target=1, a_target=1, frame='Jordan', maxiter=5):
+        if frame=='Jordan':
+            self.a_target = a_target
+            self.E_target = E_target
+        elif frame=='Einstein':
+            self.a_target = a_target
+            self.E_target = E_target
         self.lamb_val = newton(lambda l: self.get_Delta_E(l), self.lamb_val, maxiter=maxiter)
         return None
     
@@ -89,7 +111,7 @@ class KmouExpansionJordan:
         self.lamb_val = lamb_val
         self.solve()
         phi_val, phi_a_val = self.sol.sol(self.a_target)
-        self.Delta_E = np.array(self.E_kmou_fun(self.a_target, phi_val, phi_a_val) - self.H0_target) / self.H0_target
+        self.Delta_E = np.array(self.E_kmou_fun(self.a_target, phi_val, phi_a_val) - self.E_target) / self.E_target
         return self.Delta_E
 
         
