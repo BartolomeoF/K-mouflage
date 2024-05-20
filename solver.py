@@ -23,7 +23,7 @@ class KmouExpansionJordan:
         self.a = symbols('a', positive=True)
         self.phi = Function(r'\phi')(self.a)
         self.phi_a = symbols(r'\phi_a')
-        self.E = symbols('E')
+        self.E = Function('E')(self.a)
         self.lamb = symbols(r'\lambda')
         
     def _setup_equations(self):
@@ -104,7 +104,7 @@ class KmouExpansionJordan:
         self.dphi_o_da_eq = lambdify((self.a, self.phi, self.phi_a), self.phi_a)
         self.dphia_o_da_eq = lambdify((self.a, self.phi, self.phi_a), self.dphia_o_da_sym_eq.subs(self.lamb, self.lamb_val))
 
-        self.sol = solve_ivp(self.dum_fun_phi, t_span=(self.a_ini, self.a_fin), y0=(-0.1 * self.a_ini, -1), 
+        self.sol = solve_ivp(self.dum_fun_phi, t_span=(self.a_ini, self.a_fin), y0=(-1e-15 * self.a_ini, -1), 
                                dense_output=True, rtol=1e-9, atol=1e-9)
         self._enrich_sol()
         return None
