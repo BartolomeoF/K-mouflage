@@ -2,6 +2,7 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from sympy import symbols, Function, exp, pi, sqrt, lambdify, solve, Derivative
 from scipy.optimize import newton
+from scipy.interpolate import InterpolatedUnivariateSpline
 
 class KmouExpansionJordan:
     def __init__(self, lamb_val=2, beta=0.2, n=2, K0=1, Om0=0.3089,  a_ini=3e-5, a_fin=1):
@@ -44,6 +45,7 @@ class KmouExpansionJordan:
         X_bar = A**2 * phi_p**2 / (2 * self.lamb**2 * self.a**2 * self.H0_hinvMpc**2)
         K_bar = K.subs(self.X, X_bar)
         K_x_bar = K_x.subs(self.X, X_bar)
+        self.K_x_bar = K_x_bar
         
         M_pl = 1 / sqrt(8 * pi * self.G)
         rho_phi = M_pl**2 * self.H0_hinvMpc**2 * self.lamb**2 / A**4 * (2 * X_bar * K_x_bar - K_bar)
@@ -85,16 +87,12 @@ class KmouExpansionJordan:
         phi_val = self.sol.sol(a)[0]
         return self.A_fun(phi_val)
         
-    def get_a_Jor(self, a_Ein, maxiter=1000):
-        a_Jor = a_Ein
-        n_iter=0
-        while (abs(a_Jor-a_Ein)>1e-7) or (n_iter==maxiter):
-            a_Jor = a_Ein*self.get_conf_fact(a_Jor)
-            n_iter+=1
-        if n_iter==maxiter:
-            print ('Could not calculate a_jordan iteratively')
-        else:
-            return a_Jor
+    def get_a_Jor(self, a_Ein):
+        a_vals_J = np.linspace(0.1,self.a_fin, 1000)
+        A_vals = self.get_conf_fact(a_vals_J)
+        a_Jor_fun = InterpolatedUnivariateSpline(a_vals_J/A_vals, a_vals_J)
+        a_Jor = a_Jor_fun(a_Ein)
+        return a_Jor
     
     def get_E_Ein(self, a_Ein):
         a_Jor = self.get_a_Jor(a_Ein)
@@ -140,12 +138,31 @@ class KmouExpansionJordan:
         return None
         # return self.sol
         
-    # def get_growth
-    #         E_kmou_fun = lambdify((self.a, self.phi, self.phi_a), self.E_kmou.subs(self.phi.diff(self.a), self.phi_a))
-    #         E_kmou_a_fun = lambdify((self.a, self.phi, self.phi_a), self.E_kmou_a_eq.subs(self.X, self.X_bar).subs(self.phi.diff(self.a), self.phi_a).subs(self.E, self.E_kmou).subs(self.phi.diff(self.a), self.phi_a))
-    #         E_kmou_ofa = lambda dum_a: E_kmou_fun(dum_a, *self.sol.sol(dum_a))
-    #         E_kmou_a_ofa = lambda dum_a: E_kmou_a_fun(dum_a, *self.sol.sol(dum_a))
-            
-    #         mu_kmou = 1 + 2 * self.beta**2 / (self.K_x_bar)
-    #         diff_eq_kmou = (self.a * self.H_conf * (self.a * self.H_conf * D(self.a).diff(self.a)).diff(self.a) + self.a * self.H_conf * self.H_conf * D(self.a).diff(self.a) - 3 / 2 * A**2 * self.Om * self.H0_hinvMpc**2 * self.a**2 * mu_kmou * D(self.a)).expand()
-    #         x_sym_eq = diff_eq_kmou.subs(D(self.a).diff
+    def get_growth(self):
+        D = Function('D')(self.a)
+        D_a, E_diffa = symbols('D_a, E_diffa')
+        phi_val = lambda dum_a: self.sol.sol(dum_a)[0]
+        phi_a_val = lambda dum_a: self.sol.sol(dum_a)[1]
+        E_kmou_ofa = lambda dum_a: self.E_kmou_fun(dum_a, phi_val(dum_a), phi_a_val(dum_a))
+        E_kmou_a_ofa = lambda dum_a: self.E_kmou_a_fun(dum_a, phi_val(dum_a), phi_a_val(dum_a))
+        
+        mu_kmou = 1 + 2 * self.beta**2 / (self.K_x_bar)
+        diff_eq_kmou = (self.a * self.H_conf * (self.a * self.H_conf * D.diff(self.a)).diff(self.a) 
+                        + self.a * self.H_conf * self.H_conf * D.diff(self.a) 
+                        - 3 / 2 * self.A**2 * self.Om * self.H0_hinvMpc**2 * self.a**2 * mu_kmou * D).expand()
+        # Split 2nd order differential equation in a system of first order differential equations
+        D_a_sym_eq = diff_eq_kmou.subs(D.diff(self.a),D_a).subs(self.E.diff(self.a),E_diffa)
+        print(solve(D_a_sym_eq, Derivative(D_a,self.a)))
+
+        D_a_eq= lambdify((self.a,D_a,D,self.E,E_diffa,self.phi,self.phi_a), solve(D_a_sym_eq, Derivative(D_a,self.a)
+                                                                            )[0].subs(self.lamb,self.lamb_val).subs(
+                                                                                self.phi.diff(self.a), self.phi_a))
+        D_eq = lambdify((self.a,D_a,D), D_a)
+        def dum_fun(t,vec):
+            '''Dummy function to adapt the input of solve_ivp'''
+            return (D_a_eq(t,vec[0],vec[1], E_kmou_ofa(t),E_kmou_a_ofa(t), phi_val(t), phi_a_val(t)),
+                    D_eq(t,vec[0],vec[1]))
+
+        # Compute the solution of the differential equation
+        self.D_kmou_J = solve_ivp(dum_fun, t_span=(self.a_ini, self.a_fin), y0=(1,self.a_ini), dense_output=True, rtol=1e-9)
+        return self.D_kmou_J
