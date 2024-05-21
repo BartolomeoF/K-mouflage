@@ -26,6 +26,7 @@ class KmouExpansionJordan:
         self.a_ini = a_ini
         self.a_fin = a_fin
         self.Om0_val = Om0
+        self.Ol0 = 1 - Om0
         self.H0_hinvMpc = 1/2997.92458 # Hubble constant in h/Mpc units
         
         self._initialize_symbols()
@@ -49,6 +50,8 @@ class KmouExpansionJordan:
         H = self.H0_hinvMpc * self.E
         self.H_conf = self.a * H
         self.Om = self.Om0_val * self.a**(-3)
+        self.E_LCDM = sqrt(self.Om0_val/self.a**3 + self.Ol0)
+        self.E_a_LCDM = self.E_LCDM.diff()
         
         phi_p = self.a * self.H_conf * self.phi.diff(self.a)
         
@@ -87,6 +90,8 @@ class KmouExpansionJordan:
         """
         Create lambdified functions for numerical evaluations.
         """
+        self.E_LCDM_fun = lambdify(self.a, self.E_LCDM)
+        self.E_a_LCDM_fun = lambdify(self.a, self.E_a_LCDM)
         self.A_fun = lambdify(self.phi, self.A)
         self.E_kmou_fun = lambdify((self.a, self.phi, self.phi_a), self.E_kmou.subs(self.phi.diff(self.a), self.phi_a).subs(self.lamb, self.lamb_val))
         self.E_kmou_a_fun = lambdify((self.a, self.phi, self.phi_a), 
@@ -112,10 +117,10 @@ class KmouExpansionJordan:
         
     def get_conf_fact(self, a):
         """
-        Get the conformal factor A(a).
+        Get the conformal factor A(a) in terms of the Jordan frame scale factor.
         
         Parameters:
-        - a (float): Scale factor.
+        - a (float): Jordan frame scale factor.
         
         Returns:
         - float: Conformal factor A.
@@ -133,7 +138,7 @@ class KmouExpansionJordan:
         Returns:
         - float: Scale factor in the Jordan frame.
         """
-        a_vals_J = np.linspace(0.1, self.a_fin, 1000)
+        a_vals_J = np.logspace(np.log10(self.a_ini), np.log10(self.a_fin), 10000)
         A_vals = self.get_conf_fact(a_vals_J)
         a_Jor_fun = InterpolatedUnivariateSpline(a_vals_J / A_vals, a_vals_J)
         a_Jor = a_Jor_fun(a_Ein)
@@ -247,7 +252,6 @@ class KmouExpansionJordan:
                         - 3 / 2 * self.A**2 * self.Om * self.H0_hinvMpc**2 * self.a**2 * mu_kmou * D).expand()
         # Split 2nd order differential equation into a system of first order differential equations
         D_a_sym_eq = diff_eq_kmou.subs(D.diff(self.a), D_a).subs(self.E.diff(self.a), E_diffa)
-        print(solve(D_a_sym_eq, Derivative(D_a, self.a)))
 
         D_a_eq = lambdify((self.a, D_a, D, self.E, E_diffa, self.phi, self.phi_a), 
                           solve(D_a_sym_eq, Derivative(D_a, self.a))[0].subs(self.lamb, self.lamb_val).subs(self.phi.diff(self.a), self.phi_a))
@@ -270,3 +274,41 @@ class KmouExpansionJordan:
         # Compute the solution of the differential equation
         self.D_kmou_J = solve_ivp(dum_fun, t_span=(self.a_ini, self.a_fin), y0=(1, self.a_ini), dense_output=True, rtol=1e-9)
         return self.D_kmou_J
+    
+    def get_growth_LCDM(self):
+        """
+        Compute the growth factor D(a) for the vanilla LCDM model.
+        
+        Returns:
+        - OdeSolution: Solution object containing the growth factor as a function of scale factor.
+        """
+        D = Function('D')(self.a)
+        D_a, E_diffa = symbols('D_a, E_diffa')
+        
+        diff_eq_LCDM = (self.a * self.H_conf * (self.a * self.H_conf * D.diff(self.a)).diff(self.a) 
+                        + self.a * self.H_conf * self.H_conf * D.diff(self.a) 
+                        - 3 / 2 * self.Om * self.H0_hinvMpc**2 * self.a**2 * D).expand()
+        # Split 2nd order differential equation into a system of first order differential equations
+        D_a_sym_eq = diff_eq_LCDM.subs(D.diff(self.a), D_a).subs(self.E.diff(self.a), E_diffa)
+
+        D_a_eq = lambdify((self.a, D_a, D, self.E, E_diffa), 
+                          solve(D_a_sym_eq, Derivative(D_a, self.a))[0])
+        D_eq = lambdify((self.a, D_a, D), D_a)
+        
+        def dum_fun(t, vec):
+            """
+            Dummy function to adapt the input of solve_ivp.
+            
+            Parameters:
+            - t (float): Independent variable (time or scale factor).
+            - vec (list): Dependent variables [D', D].
+            
+            Returns:
+            - tuple: Derivatives of the dependent variables.
+            """
+            return (D_a_eq(t, vec[0], vec[1], self.E_LCDM_fun(t), self.E_a_LCDM_fun(t)),
+                    D_eq(t, vec[0], vec[1]))
+
+        # Compute the solution of the differential equation
+        self.D_LCDM = solve_ivp(dum_fun, t_span=(self.a_ini, self.a_fin), y0=(1, self.a_ini), dense_output=True, rtol=1e-9)
+        return self.D_LCDM
