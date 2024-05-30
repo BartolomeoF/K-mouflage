@@ -2,7 +2,7 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from sympy import symbols, Function, exp, pi, sqrt, lambdify, solve, Derivative
 from scipy.optimize import newton
-from scipy.interpolate import InterpolatedUnivariateSpline
+from scipy.interpolate import InterpolatedUnivariateSpline 
 
 class KmouExpansionJordan:
     """
@@ -64,7 +64,8 @@ class KmouExpansionJordan:
         X_bar = A**2 * phi_p**2 / (2 * self.lamb**2 * self.a**2 * self.H0_hinvMpc**2)
         K_bar = K.subs(self.X, X_bar)
         K_x_bar = K_x.subs(self.X, X_bar)
-        self.K_x_bar = K_x_bar
+        self.mu_kmou = 1 + 2 * self.beta**2 / (K_x_bar)
+
         
         M_pl = 1 / sqrt(8 * pi * self.G)
         rho_phi = M_pl**2 * self.H0_hinvMpc**2 * self.lamb**2 / A**4 * (2 * X_bar * K_x_bar - K_bar)
@@ -100,6 +101,8 @@ class KmouExpansionJordan:
                                      .subs(self.E, self.E_kmou)
                                      .subs(self.phi.diff(self.a), self.phi_a)
                                      .subs(self.lamb, self.lamb_val))
+        self.mu_kmou_fun = lambdify((self.a, self.phi, self.phi_a), self.mu_kmou.subs(self.E, self.E_kmou).subs(
+            self.phi.diff(self.a), self.phi_a).subs(self.lamb, self.lamb_val))
         
     def dum_fun_phi(self, t, vec):
         """
@@ -214,8 +217,13 @@ class KmouExpansionJordan:
         """
         self.a_vals = np.logspace(-3, 0, 1000) if a_vals is None else a_vals
         phi_vals, phi_a_vals = self.sol.sol(self.a_vals)
-        return (self.a_vals, phi_vals, phi_a_vals, self.E_kmou_fun(self.a_vals, phi_vals, phi_a_vals), 
-                self.E_kmou_a_fun(self.a_vals, phi_vals, phi_a_vals))
+        E_kmou_vals = self.E_kmou_fun(self.a_vals, phi_vals, phi_a_vals)
+        E_kmou_a_vals = self.E_kmou_a_fun(self.a_vals, phi_vals, phi_a_vals)
+        mu_kmou_vals = self.mu_kmou_fun(self.a_vals, phi_vals, phi_a_vals)
+        A_vals = self.A_fun(phi_vals)
+        header = 'a, phi, phi_a, E_kmou, E_kmou_a, A, mu_kmou'.split(', ')
+        table = np.array([self.a_vals, phi_vals, phi_a_vals, E_kmou_vals, E_kmou_a_vals, A_vals, mu_kmou_vals])
+        return header, table
 
     def solve(self):
         """
@@ -246,10 +254,9 @@ class KmouExpansionJordan:
         E_kmou_ofa = lambda dum_a: self.E_kmou_fun(dum_a, phi_val(dum_a), phi_a_val(dum_a))
         E_kmou_a_ofa = lambda dum_a: self.E_kmou_a_fun(dum_a, phi_val(dum_a), phi_a_val(dum_a))
         
-        mu_kmou = 1 + 2 * self.beta**2 / (self.K_x_bar)
         diff_eq_kmou = (self.a * self.H_conf * (self.a * self.H_conf * D.diff(self.a)).diff(self.a) 
                         + self.a * self.H_conf * self.H_conf * D.diff(self.a) 
-                        - 3 / 2 * self.A**2 * self.Om * self.H0_hinvMpc**2 * self.a**2 * mu_kmou * D).expand()
+                        - 3 / 2 * self.A**2 * self.Om * self.H0_hinvMpc**2 * self.a**2 * self.mu_kmou * D).expand()
         # Split 2nd order differential equation into a system of first order differential equations
         D_a_sym_eq = diff_eq_kmou.subs(D.diff(self.a), D_a).subs(self.E.diff(self.a), E_diffa)
 
@@ -312,3 +319,63 @@ class KmouExpansionJordan:
         # Compute the solution of the differential equation
         self.D_LCDM = solve_ivp(dum_fun, t_span=(self.a_ini, self.a_fin), y0=(1, self.a_ini), dense_output=True, rtol=1e-9)
         return self.D_LCDM
+    
+# class KmouExpansionEinstein(KmouExpansionJordan):
+#     def _setup_equations(self):
+#         """
+#         Set up the key equations for the K-mouflage model in the Einstein frame.
+#         """
+#         H = self.H0_hinvMpc * self.E
+#         self.H_conf = self.a * H
+#         self.Om = self.Om0_val * self.a**(-3)
+#         self.E_LCDM = sqrt(self.Om0_val/self.a**3 + self.Ol0)
+#         self.E_a_LCDM = self.E_LCDM.diff()
+        
+#         phi_p = self.a * self.H_conf * self.phi.diff(self.a)
+#         phi_pp = self.a*self.H_conf*(phi_p).diff(self.a)
+#         phi_d = phi_p/self.a
+#         phi_dd = phi_pp/self.a**2 - phi_p/self.a**2*self.H_conf
+        
+#         A = exp(self.beta * self.phi)
+#         self.A = A
+#         rho_m0 = self.Om0_val * self.H0_hinvMpc**2 / (8 * pi * self.G / 3)
+#         rho_m =  self.Om * self.H0_hinvMpc**2 / (8 * pi * self.G / 3)
+        
+#         K = (-1 + self.X + self.K0 * self.X**self.n)
+#         K_x = K.diff(self.X)
+#         K_xx = K_x.diff(X)
+#         X_bar = phi_p**2 / (2 * self.lamb**2 * self.a**2 * self.H0_hinvMpc**2)
+#         K_bar = K.subs(self.X, X_bar)
+#         K_x_bar = K_x.subs(self.X, X_bar)
+#         K_xx_bar = K_xx.subs(X, X_bar)
+#         self.mu_kmou = 1 + 2 * self.beta**2 / (K_x_bar)
+
+        
+#         kmou_back = ((K_x_bar + 2*X_bar*K_xx_bar)*phi_dd + 3*H*K_x_bar*phi_d + A.diff(self.phi)*8*pi*self.G * rho_m)
+#         self.E_kmou_a = (((-4*pi*self.G*A*rho_m - K_x_bar*phi_d**2/2 - self.lamb**2*self.H0_hinvMpc**2*K)/3-H**2)/self.H_conf/self.H0_hinvMpc)
+        
+#         self.dphia_o_da_sym_eq = solve(kmou_back.subs(self.phi.diff(self.a),self.phi_a),Derivative(self.phi_a,self.a))[0]
+#         self.dphia_o_da_sym_eq = self.dphia_o_da_sym_eq.subs(self.E.diff(self.a), self.E_kmou_a)
+#         self.dphia_o_da_sym_eq = self.dphia_o_da_sym_eq.subs(self.phi.diff(self.a), self.phi_a)
+
+#         self.dE_o_da_sym_eq = self.E_kmou_a.subs(self.phi.diff(a),self.phi_a)
+
+    
+
+
+if __name__ == '__main__':
+    print('Initialising equations...')
+    dum_exp = KmouExpansionJordan()
+    print('Tuning lambda...')
+    dum_exp.tune_lambda()
+    print('Solving the background (unnecessarily if tune_lambda was called)...')
+    dum_exp.solve()
+    print('Solving the growth in kmouflage...')
+    dum_exp.get_growth()
+    print('Solving the growth in LCDM...')
+    dum_exp.get_growth_LCDM()
+    print('Evaluating key quantities...')
+    header, table = dum_exp.eval()
+    print('Out table header:', header)
+    print('Out table shape:', table.shape)
+    print('End!')
