@@ -18,15 +18,16 @@ class KmouExpansionJordan:
     - a_fin (float): Final scale factor.
     """
     
-    def __init__(self, lamb_val=2, beta=0.2, n=2, K0=1, Om0=0.3089, a_ini=3e-5, a_fin=1):
+    def __init__(self, lamb_val=2, beta=0.2, n=2, K0=1, Om0=0.3089, a_ini=3e-5, a_fin=1, A0=1):
         self.lamb_val = lamb_val
         self.beta = beta
         self.n = n
         self.K0 = K0
         self.a_ini = a_ini
         self.a_fin = a_fin
-        self.Om0_val = Om0
+        self.Om0_val = Om0/A0**2
         self.Ol0 = 1 - Om0
+        self.A0 = A0
         self.H0_hinvMpc = 1/2997.92458 # Hubble constant in h/Mpc units
         
         self._initialize_symbols()
@@ -55,7 +56,7 @@ class KmouExpansionJordan:
         
         phi_p = self.a * self.H_conf * self.phi.diff(self.a)
         
-        A = exp(self.beta * self.phi)
+        A = exp(self.beta * self.phi)#/self.A0
         self.A = A
         rho_m0 = self.Om0_val * self.H0_hinvMpc**2 / (8 * pi * self.G / 3)
         
@@ -67,7 +68,7 @@ class KmouExpansionJordan:
         self.mu_kmou = 1 + 2 * self.beta**2 / (K_x_bar)
 
         
-        M_pl = 1 / sqrt(8 * pi * self.G)
+        M_pl = 1 / sqrt(8 * pi * self.G) *self.A0**2
         rho_phi = M_pl**2 * self.H0_hinvMpc**2 * self.lamb**2 / A**4 * (2 * X_bar * K_x_bar - K_bar)
         p_phi = M_pl**2 * self.H0_hinvMpc**2 * self.lamb**2 / A**4 * K_bar
         O_phi = rho_phi / (3 * self.H0_hinvMpc**2 * M_pl**2)
