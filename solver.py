@@ -235,7 +235,7 @@ class KmouExpansionJordan:
         self.dphi_o_da_eq = lambdify((self.a, self.phi, self.phi_a), self.phi_a)
         self.dphia_o_da_eq = lambdify((self.a, self.phi, self.phi_a), self.dphia_o_da_sym_eq.subs(self.lamb, self.lamb_val))
 
-        self.sol = solve_ivp(self.dum_fun_phi, t_span=(self.a_ini, self.a_fin), y0=(-1e-15 * self.a_ini, -1), 
+        self.sol = solve_ivp(self.dum_fun_phi, t_span=(self.a_ini, self.a_fin), y0=(-0.01 * self.a_ini, -0.01), 
                              dense_output=True, rtol=1e-9, atol=1e-9)
         self._enrich_sol()
         return None
