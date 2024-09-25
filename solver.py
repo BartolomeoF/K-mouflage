@@ -18,7 +18,7 @@ class KmouExpansionJordan:
     - a_fin (float): Final scale factor.
     """
     
-    def __init__(self, lamb_val=2, beta=0.2, n=2, K0=1, Om0=0.3089, a_ini=3e-5, a_fin=1):
+    def __init__(self, lamb_val=2, beta=0.2, n=2, K0=1, Om0=0.3089, a_ini=1e-6, a_fin=1):
         self.lamb_val = lamb_val
         self.beta = beta
         self.n = n
